@@ -2,25 +2,17 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/cli/go-gh"
+	"os/exec"
+	"strings"
 )
 
 func main() {
-	fmt.Println("hi world, this is the gh-cgu extension!")
-	client, err := gh.RESTClient(nil)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	response := struct {Login string}{}
-	err = client.Get("user", &response)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Printf("running as %s\n", response.Login)
-}
+	userNameOut, _ := exec.Command("git", "config", "user.name").Output()
+	userEmailOut, _ := exec.Command("git", "config", "user.email").Output()
 
-// For more examples of using go-gh, see:
-// https://github.com/cli/go-gh/blob/trunk/example_gh_test.go
+	// erase \n ...
+	userName := strings.Replace(string(userNameOut), "\n", "", 1)
+	userEmail := strings.Replace(string(userEmailOut), "\n", "", 1)
+
+	fmt.Printf("Current Git User: %s<%s>", userName, userEmail)
+}
