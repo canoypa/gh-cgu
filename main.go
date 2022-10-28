@@ -1,122 +1,143 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-func getConfigPath() string {
-	path := os.Getenv("HOME")
+var (
+	flagAdd    bool
+	flagRemove bool
+)
 
-	if path == "" && runtime.GOOS == "windows" {
-		path = os.Getenv("APPDATA")
-	} else {
-		path = filepath.Join(path, ".config")
-	}
-
-	path = filepath.Join(path, "gh-cgu")
-
-	return path
+type Profile interface {
+	name() string
+	email() string
 }
-
-var flagSet bool
 
 var rootCmd = &cobra.Command{
 	Use: "gh cgu",
-	Run: func(c *cobra.Command, args []string) {
-
-		// show current user
-		// e.g. gh cgu
-		if len(args) == 0 {
-			userNameOut, _ := exec.Command("git", "config", "user.name").Output()
-			userEmailOut, _ := exec.Command("git", "config", "user.email").Output()
-
-			// erase \n ...
-			userName := strings.Replace(string(userNameOut), "\n", "", 1)
-			userEmail := strings.Replace(string(userEmailOut), "\n", "", 1)
-
-			fmt.Printf("Current Git User: %s<%s>", userName, userEmail)
-
-			return
-		}
-
-		// set user
-		// e.g. gh cgu --set username user@example.com
-		if flagSet && len(args) == 2 || len(args) == 3 {
-			name := args[0]
-			gitUserName := args[0]
-			gitUserEmail := args[1]
-
-			if len(args) == 3 {
-				gitUserName = args[1]
-				gitUserEmail = args[2]
+	Args: func(cmd *cobra.Command, args []string) error {
+		if flagAdd {
+			if err := cobra.ExactArgs(2)(cmd, args); err != nil {
+				return err
 			}
 
-			viper.Set(name+".name", gitUserName)
-			viper.Set(name+".email", gitUserEmail)
+			return nil
+		}
+
+		if flagRemove {
+			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+				return err
+			}
+
+			return nil
+		}
+
+		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+			return err
+		}
+
+		return nil
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+
+		if flagAdd {
+			name := args[0]
+			email := args[1]
+
+			viper.Set(name+".name", name)
+			viper.Set(name+".email", email)
 			viper.WriteConfig()
 
-			fmt.Printf("Add Git User: %s<%s>", gitUserName, gitUserEmail)
+			fmt.Printf("Add profile: %s<%s>", name, email)
 
 			return
 		}
 
-		// change user
-		// e.g. gh cgu username
+		if flagRemove {
+			name := args[0]
+			email := viper.GetString(name + ".email")
+
+			configMap := viper.AllSettings()
+			delete(configMap, name)
+			encodedConfig, _ := json.MarshalIndent(configMap, "", " ")
+			err := viper.ReadConfig(bytes.NewReader(encodedConfig))
+			cobra.CheckErr(err)
+			viper.WriteConfig()
+
+			fmt.Printf("Remove profile: %s<%s>", name, email)
+
+			return
+		}
+
+		if f, err := os.Stat(".git"); os.IsNotExist(err) || !f.IsDir() {
+			fmt.Println("Error: Not in a git directory")
+		}
+
 		if len(args) == 1 {
-			if f, err := os.Stat(".git"); os.IsNotExist(err) || !f.IsDir() {
-				fmt.Println("Error: Not in a git directory")
+			key := args[0]
+			name := viper.GetString(key + ".name")
+			email := viper.GetString(key + ".email")
+
+			if name == "" || email == "" {
+				err := fmt.Errorf("no such user")
+				cobra.CheckErr(err)
 			}
 
-			getName := args[0]
+			exec.Command("git", "config", "user.name", name).Run()
+			exec.Command("git", "config", "user.email", email).Run()
 
-			settingName := viper.GetString(getName + ".name")
-			settingEmail := viper.GetString(getName + ".email")
-
-			if settingName == "" || settingEmail == "" {
-				fmt.Println("Error: No such user")
-				return
-			}
-
-			exec.Command("git", "config", "user.name", settingName).Run()
-			exec.Command("git", "config", "user.email", settingEmail).Run()
-
-			fmt.Printf("Change Git User: %s<%s>", settingName, settingEmail)
+			fmt.Printf("Change Git User: %s<%s>", name, email)
 
 			return
 		}
 
-		c.Help()
+		userNameOut, _ := exec.Command("git", "config", "user.name").Output()
+		userEmailOut, _ := exec.Command("git", "config", "user.email").Output()
+
+		// erase \n ...
+		userName := strings.Replace(string(userNameOut), "\n", "", 1)
+		userEmail := strings.Replace(string(userEmailOut), "\n", "", 1)
+
+		fmt.Printf("Current Git User: %s<%s>", userName, userEmail)
 	},
 }
 
 func main() {
-	cobra.OnInitialize(func() {
-		configName := "config"
-		configType := "yaml"
-		configPath := getConfigPath()
+	cobra.OnInitialize(initializeConfig)
 
-		viper.SetConfigName(configName)
-		viper.SetConfigType(configType)
-		viper.AddConfigPath(configPath)
+	rootCmd.PersistentFlags().BoolVar(&flagAdd, "add", false, "Add profile")
+	rootCmd.PersistentFlags().BoolVar(&flagRemove, "remove", false, "Remove profile")
+	rootCmd.MarkFlagsMutuallyExclusive("add", "remove")
 
-		if err := viper.ReadInConfig(); err != nil {
-			os.MkdirAll(configPath, 0700)
-			viper.WriteConfigAs(filepath.Join(configPath, fmt.Sprintf("%s.%s", configName, configType)))
-		}
-	})
+	err := rootCmd.Execute()
+	cobra.CheckErr(err)
+}
 
-	rootCmd.PersistentFlags().BoolVarP(&flagSet, "set", "s", false, "set user")
+func initializeConfig() {
+	homePath, err := os.UserHomeDir()
+	cobra.CheckErr(err)
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	configPath := filepath.Join(homePath, ".config")
+	configName := "gh-cgu"
+	configType := "yaml"
+
+	viper.AddConfigPath(configPath)
+	viper.SetConfigName(configName)
+	viper.SetConfigType(configType)
+
+	// if config not found
+	if err := viper.ReadInConfig(); err != nil {
+		os.MkdirAll(configPath, 0700)
+		viper.WriteConfigAs(filepath.Join(configPath, fmt.Sprintf("%s.%s", configName, configType)))
 	}
 }
