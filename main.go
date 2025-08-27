@@ -67,15 +67,33 @@ var rootCmd = &cobra.Command{
 			name := args[0]
 			email := viper.GetString(name + ".email")
 
+			// Check if profile exists
+			if email == "" {
+				err := fmt.Errorf("profile '%s' not found", name)
+				cobra.CheckErr(err)
+			}
+
+			// Get all settings and remove the profile
 			configMap := viper.AllSettings()
 			delete(configMap, name)
-			encodedConfig, _ := json.MarshalIndent(configMap, "", " ")
-			err := viper.ReadConfig(bytes.NewReader(encodedConfig))
-			cobra.CheckErr(err)
-			viper.WriteConfig()
+			
+			// Re-encode and reload configuration
+			encodedConfig, err := json.MarshalIndent(configMap, "", " ")
+			if err != nil {
+				cobra.CheckErr(err)
+			}
+			
+			err = viper.ReadConfig(bytes.NewReader(encodedConfig))
+			if err != nil {
+				cobra.CheckErr(err)
+			}
+			
+			err = viper.WriteConfig()
+			if err != nil {
+				cobra.CheckErr(err)
+			}
 
-			fmt.Printf("Remove profile: %s<%s>", name, email)
-
+			fmt.Printf("Remove profile: %s<%s>\n", name, email)
 			return
 		}
 
