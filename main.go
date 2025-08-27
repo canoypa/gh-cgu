@@ -59,10 +59,6 @@ var rootCmd = &cobra.Command{
 			return
 		}
 
-		if f, err := os.Stat(".git"); os.IsNotExist(err) || !f.IsDir() {
-			fmt.Println("Error: Not in a git directory")
-		}
-
 		if len(args) == 1 {
 			switchToProfile(args[0])
 			return
@@ -128,8 +124,20 @@ func removeProfile(name string) {
 	fmt.Printf("Remove profile: %s<%s>\n", name, email)
 }
 
+// checkGitDirectory checks if the current directory is a git repository
+func checkGitDirectory() error {
+	if f, err := os.Stat(".git"); os.IsNotExist(err) || !f.IsDir() {
+		return fmt.Errorf("not in a git directory")
+	}
+	return nil
+}
+
 // switchToProfile switches to the specified profile
 func switchToProfile(profileName string) {
+	if err := checkGitDirectory(); err != nil {
+		cobra.CheckErr(err)
+	}
+
 	name := viper.GetString(profileName + ".name")
 	email := viper.GetString(profileName + ".email")
 
@@ -153,6 +161,10 @@ func switchToProfile(profileName string) {
 
 // showCurrentUser displays the current git user
 func showCurrentUser() {
+	if err := checkGitDirectory(); err != nil {
+		cobra.CheckErr(err)
+	}
+
 	userNameOut, err := exec.Command("git", "config", "user.name").Output()
 	if err != nil {
 		cobra.CheckErr(fmt.Errorf("failed to get git user.name: %w", err))
