@@ -49,51 +49,13 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-
 		if flagAdd {
-			name := args[0]
-			email := args[1]
-
-			viper.Set(name+".name", name)
-			viper.Set(name+".email", email)
-			viper.WriteConfig()
-
-			fmt.Printf("Add profile: %s<%s>", name, email)
-
+			addProfile(args[0], args[1])
 			return
 		}
 
 		if flagRemove {
-			name := args[0]
-			email := viper.GetString(name + ".email")
-
-			// Check if profile exists
-			if email == "" {
-				err := fmt.Errorf("profile '%s' not found", name)
-				cobra.CheckErr(err)
-			}
-
-			// Get all settings and remove the profile
-			configMap := viper.AllSettings()
-			delete(configMap, name)
-			
-			// Re-encode and reload configuration
-			encodedConfig, err := json.MarshalIndent(configMap, "", " ")
-			if err != nil {
-				cobra.CheckErr(err)
-			}
-			
-			err = viper.ReadConfig(bytes.NewReader(encodedConfig))
-			if err != nil {
-				cobra.CheckErr(err)
-			}
-			
-			err = viper.WriteConfig()
-			if err != nil {
-				cobra.CheckErr(err)
-			}
-
-			fmt.Printf("Remove profile: %s<%s>\n", name, email)
+			removeProfile(args[0])
 			return
 		}
 
@@ -102,31 +64,11 @@ var rootCmd = &cobra.Command{
 		}
 
 		if len(args) == 1 {
-			key := args[0]
-			name := viper.GetString(key + ".name")
-			email := viper.GetString(key + ".email")
-
-			if name == "" || email == "" {
-				err := fmt.Errorf("no such user")
-				cobra.CheckErr(err)
-			}
-
-			exec.Command("git", "config", "user.name", name).Run()
-			exec.Command("git", "config", "user.email", email).Run()
-
-			fmt.Printf("Change Git User: %s<%s>", name, email)
-
+			switchToProfile(args[0])
 			return
 		}
 
-		userNameOut, _ := exec.Command("git", "config", "user.name").Output()
-		userEmailOut, _ := exec.Command("git", "config", "user.email").Output()
-
-		// erase \n ...
-		userName := strings.Replace(string(userNameOut), "\n", "", 1)
-		userEmail := strings.Replace(string(userEmailOut), "\n", "", 1)
-
-		fmt.Printf("Current Git User: %s<%s>", userName, userEmail)
+		showCurrentUser()
 	},
 }
 
@@ -139,6 +81,93 @@ func main() {
 
 	err := rootCmd.Execute()
 	cobra.CheckErr(err)
+}
+
+// addProfile adds a new profile with the given name and email
+func addProfile(name, email string) {
+	viper.Set(name+".name", name)
+	viper.Set(name+".email", email)
+	err := viper.WriteConfig()
+	if err != nil {
+		cobra.CheckErr(err)
+	}
+
+	fmt.Printf("Add profile: %s<%s>\n", name, email)
+}
+
+// removeProfile removes a profile by name
+func removeProfile(name string) {
+	email := viper.GetString(name + ".email")
+
+	// Check if profile exists
+	if email == "" {
+		err := fmt.Errorf("profile '%s' not found", name)
+		cobra.CheckErr(err)
+	}
+
+	// Get all settings and remove the profile
+	configMap := viper.AllSettings()
+	delete(configMap, name)
+
+	// Re-encode and reload configuration
+	encodedConfig, err := json.MarshalIndent(configMap, "", " ")
+	if err != nil {
+		cobra.CheckErr(err)
+	}
+
+	err = viper.ReadConfig(bytes.NewReader(encodedConfig))
+	if err != nil {
+		cobra.CheckErr(err)
+	}
+
+	err = viper.WriteConfig()
+	if err != nil {
+		cobra.CheckErr(err)
+	}
+
+	fmt.Printf("Remove profile: %s<%s>\n", name, email)
+}
+
+// switchToProfile switches to the specified profile
+func switchToProfile(profileName string) {
+	name := viper.GetString(profileName + ".name")
+	email := viper.GetString(profileName + ".email")
+
+	if name == "" || email == "" {
+		err := fmt.Errorf("profile '%s' not found", profileName)
+		cobra.CheckErr(err)
+	}
+
+	err := exec.Command("git", "config", "user.name", name).Run()
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to set git user.name: %w", err))
+	}
+
+	err = exec.Command("git", "config", "user.email", email).Run()
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to set git user.email: %w", err))
+	}
+
+	fmt.Printf("Change Git User: %s<%s>\n", name, email)
+}
+
+// showCurrentUser displays the current git user
+func showCurrentUser() {
+	userNameOut, err := exec.Command("git", "config", "user.name").Output()
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to get git user.name: %w", err))
+	}
+
+	userEmailOut, err := exec.Command("git", "config", "user.email").Output()
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("failed to get git user.email: %w", err))
+	}
+
+	// trim newlines
+	userName := strings.TrimSpace(string(userNameOut))
+	userEmail := strings.TrimSpace(string(userEmailOut))
+
+	fmt.Printf("Current Git User: %s<%s>\n", userName, userEmail)
 }
 
 func initializeConfig() {
