@@ -1,6 +1,6 @@
 module github.com/canoypa/gh-cgu
 
-go 1.23.0
+go 1.23
 
 require (
 	github.com/spf13/cobra v1.9.1
