@@ -19,9 +19,12 @@ const (
 )
 
 var (
-	flagKey   string
-	ghLoginID string
-	ghClient  *api.RESTClient
+	flagKey       string
+	flagEditName  string
+	flagEditEmail string
+	flagEditKey   string
+	ghLoginID     string
+	ghClient      *api.RESTClient
 )
 
 // toKey converts a display name to a profile key.
@@ -221,6 +224,23 @@ var removeCmd = &cobra.Command{
 	},
 }
 
+var editCmd = &cobra.Command{
+	Use:   "edit <key>",
+	Short: "Edit an existing profile",
+	Args:  cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			cmd.Help()
+			return
+		}
+		if !cmd.Flags().Changed("name") && !cmd.Flags().Changed("email") && !cmd.Flags().Changed("key") {
+			cmd.Help()
+			return
+		}
+		editProfile(args[0], flagEditName, flagEditEmail, flagEditKey, cmd.Flags().Changed("name"), cmd.Flags().Changed("email"), cmd.Flags().Changed("key"))
+	},
+}
+
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all saved profiles",
@@ -234,9 +254,12 @@ func main() {
 	cobra.OnInitialize(initializeConfig)
 
 	addCmd.Flags().StringVar(&flagKey, "key", "", "Profile key used in config (defaults to name with spaces replaced by hyphens)")
+	editCmd.Flags().StringVar(&flagEditName, "name", "", "New display name")
+	editCmd.Flags().StringVar(&flagEditEmail, "email", "", "New email address")
+	editCmd.Flags().StringVar(&flagEditKey, "key", "", "New profile key")
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.AddCommand(useCmd, addCmd, removeCmd, listCmd, syncGistCmd)
+	rootCmd.AddCommand(useCmd, addCmd, editCmd, removeCmd, listCmd, syncGistCmd)
 	rootCmd.SetUsageTemplate(`Usage:{{if .Runnable}}
   gh {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   gh {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
@@ -261,6 +284,46 @@ Use "gh {{.CommandPath}} [command] --help" for more information about a command.
 
 	err := rootCmd.Execute()
 	cobra.CheckErr(err)
+}
+
+// editProfile updates an existing profile's name, email, and/or key
+func editProfile(key, name, email, newKey string, changeName, changeEmail, changeKey bool) {
+	currentName := viper.GetString(key + ".name")
+	currentEmail := viper.GetString(key + ".email")
+
+	if currentName == "" || currentEmail == "" {
+		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
+	}
+
+	if !changeName {
+		name = currentName
+	}
+	if !changeEmail {
+		email = currentEmail
+	}
+
+	if changeKey {
+		// Remove old key and write under new key
+		configMap := viper.AllSettings()
+		delete(configMap, strings.ToLower(key))
+		encodedConfig, err := json.MarshalIndent(configMap, "", " ")
+		if err != nil {
+			cobra.CheckErr(err)
+		}
+		if err := viper.ReadConfig(bytes.NewReader(encodedConfig)); err != nil {
+			cobra.CheckErr(err)
+		}
+		key = newKey
+	}
+
+	viper.Set(key+".name", name)
+	viper.Set(key+".email", email)
+	if err := viper.WriteConfig(); err != nil {
+		cobra.CheckErr(err)
+	}
+
+	fmt.Printf("✓ Updated profile %q (%s <%s>)\n", key, name, email)
+	syncToGist()
 }
 
 // addProfile adds a new profile with the given display name, email, and key
