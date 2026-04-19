@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -20,6 +21,7 @@ const (
 var (
 	flagKey   string
 	ghLoginID string
+	ghClient  *api.RESTClient
 )
 
 // toKey converts a display name to a profile key.
@@ -36,11 +38,18 @@ func toKey(s string) string {
 // initGHLogin fetches and caches the authenticated GitHub login ID.
 // Exits with an error if not logged in.
 func initGHLogin() {
-	out, err := exec.Command("gh", "api", "/user", "--jq", ".login").Output()
+	var err error
+	ghClient, err = api.DefaultRESTClient()
 	if err != nil {
+		cobra.CheckErr(err)
+	}
+	var user struct {
+		Login string `json:"login"`
+	}
+	if err := ghClient.Get("user", &user); err != nil {
 		cobra.CheckErr(fmt.Errorf("not logged in to GitHub CLI, run 'gh auth login' to authenticate"))
 	}
-	ghLoginID = strings.TrimSpace(string(out))
+	ghLoginID = user.Login
 }
 
 // gistFileName returns the Gist filename based on the cached GitHub login ID
@@ -50,27 +59,22 @@ func gistFileName() string {
 
 // findGistID searches all of the authenticated user's gists for one containing the config file
 func findGistID() string {
-	out, err := exec.Command("gh", "api", "--paginate", "/gists?per_page=100").Output()
-	if err != nil {
-		return ""
-	}
-
-	// --paginate returns multiple JSON arrays concatenated; wrap into a single array
-	merged := bytes.ReplaceAll(out, []byte("][\n"), []byte(","))
-	merged = bytes.ReplaceAll(merged, []byte("]["), []byte(","))
-
-	var gists []struct {
-		ID    string                     `json:"id"`
-		Files map[string]json.RawMessage `json:"files"`
-	}
-	if err := json.Unmarshal(merged, &gists); err != nil {
-		return ""
-	}
-
 	fileName := gistFileName()
-	for _, g := range gists {
-		if _, ok := g.Files[fileName]; ok {
-			return g.ID
+	for page := 1; ; page++ {
+		var gists []struct {
+			ID    string                     `json:"id"`
+			Files map[string]json.RawMessage `json:"files"`
+		}
+		if err := ghClient.Get(fmt.Sprintf("gists?per_page=100&page=%d", page), &gists); err != nil || len(gists) == 0 {
+			break
+		}
+		for _, g := range gists {
+			if _, ok := g.Files[fileName]; ok {
+				return g.ID
+			}
+		}
+		if len(gists) < 100 {
+			break
 		}
 	}
 	return ""
@@ -117,14 +121,11 @@ func doSyncToGist() {
 	}
 
 	gistID := findGistID()
+	var result json.RawMessage
 	if gistID == "" {
-		cmd := exec.Command("gh", "api", "-X", "POST", "/gists", "--input", "-")
-		cmd.Stdin = bytes.NewReader(payloadBytes)
-		cmd.Run()
+		ghClient.Post("gists", bytes.NewReader(payloadBytes), &result)
 	} else {
-		cmd := exec.Command("gh", "api", "-X", "PATCH", fmt.Sprintf("/gists/%s", gistID), "--input", "-")
-		cmd.Stdin = bytes.NewReader(payloadBytes)
-		cmd.Run()
+		ghClient.Patch(fmt.Sprintf("gists/%s", gistID), bytes.NewReader(payloadBytes), &result)
 	}
 }
 
@@ -144,17 +145,12 @@ func pullFromGist(configFile string) {
 		return
 	}
 
-	out, err := exec.Command("gh", "api", fmt.Sprintf("/gists/%s", gistID)).Output()
-	if err != nil {
-		return
-	}
-
 	var gist struct {
 		Files map[string]struct {
 			Content string `json:"content"`
 		} `json:"files"`
 	}
-	if err := json.Unmarshal(out, &gist); err != nil {
+	if err := ghClient.Get(fmt.Sprintf("gists/%s", gistID), &gist); err != nil {
 		return
 	}
 
