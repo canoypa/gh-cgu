@@ -25,9 +25,7 @@ var removeCmd = &cobra.Command{
 
 // removeProfile removes a profile by key
 func removeProfile(v *viper.Viper, key string) {
-	email := v.GetString(key + ".email")
-
-	if email == "" {
+	if !v.IsSet(key) {
 		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
 	}
 
