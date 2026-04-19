@@ -21,6 +21,11 @@ gh cgu use <key>
 gh cgu add <name> <email>
 gh cgu add <name> <email> --key <key>  # specify key explicitly (e.g. for non-ASCII names)
 
+# Edit an existing profile
+gh cgu edit <key> --name <name>
+gh cgu edit <key> --email <email>
+gh cgu edit <key> --key <new-key>
+
 # Remove a profile
 gh cgu remove <key>
 
