@@ -47,6 +47,10 @@ func toKey(s string) string {
 
 // addProfile adds a new profile with the given display name, email, and key
 func addProfile(v *viper.Viper, name, email, key string) {
+	if v.IsSet(key) {
+		cobra.CheckErr(fmt.Errorf("profile %q already exists, use 'gh cgu edit %s' to update it", key, key))
+	}
+
 	configMap := v.AllSettings()
 	if configMap == nil {
 		configMap = make(map[string]interface{})
