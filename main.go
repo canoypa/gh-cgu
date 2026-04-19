@@ -8,102 +8,281 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var (
-	flagAdd    bool
-	flagRemove bool
+const (
+	gistDescription = "gh-cgu profiles"
 )
 
-type Profile interface {
-	name() string
-	email() string
+var (
+	flagKey   string
+	ghLoginID string
+)
+
+// toKey converts a display name to a profile key.
+// Spaces and underscores are replaced with hyphens; leading/trailing hyphens are trimmed.
+func toKey(s string) string {
+	s = strings.NewReplacer(" ", "-", "_", "-").Replace(s)
+	s = strings.Trim(s, "-")
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	return s
+}
+
+// initGHLogin fetches and caches the authenticated GitHub login ID.
+// Exits with an error if not logged in.
+func initGHLogin() {
+	out, err := exec.Command("gh", "api", "/user", "--jq", ".login").Output()
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("not logged in to GitHub CLI. Run 'gh auth login' first"))
+	}
+	ghLoginID = strings.TrimSpace(string(out))
+}
+
+// gistFileName returns the Gist filename based on the cached GitHub login ID
+func gistFileName() string {
+	return fmt.Sprintf("gh-cgu-%s-config.yml", ghLoginID)
+}
+
+// findGistID searches all of the authenticated user's gists for one containing the config file
+func findGistID() string {
+	out, err := exec.Command("gh", "api", "--paginate", "/gists?per_page=100").Output()
+	if err != nil {
+		return ""
+	}
+
+	// --paginate returns multiple JSON arrays concatenated; wrap into a single array
+	merged := bytes.ReplaceAll(out, []byte("][\n"), []byte(","))
+	merged = bytes.ReplaceAll(merged, []byte("]["), []byte(","))
+
+	var gists []struct {
+		ID    string                     `json:"id"`
+		Files map[string]json.RawMessage `json:"files"`
+	}
+	if err := json.Unmarshal(merged, &gists); err != nil {
+		return ""
+	}
+
+	fileName := gistFileName()
+	for _, g := range gists {
+		if _, ok := g.Files[fileName]; ok {
+			return g.ID
+		}
+	}
+	return ""
+}
+
+// syncToGist launches a detached background process to push config to Gist
+func syncToGist() {
+	bin, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(bin, "_sync-gist")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Start()
+}
+
+// doSyncToGist pushes the current config to a Gist (creates if not exists)
+func doSyncToGist() {
+	configFile := viper.ConfigFileUsed()
+	content, err := os.ReadFile(configFile)
+	if err != nil {
+		return
+	}
+
+	type gistFile struct {
+		Content string `json:"content"`
+	}
+	type gistPayload struct {
+		Description string              `json:"description"`
+		Public      bool                `json:"public"`
+		Files       map[string]gistFile `json:"files"`
+	}
+
+	payload := gistPayload{
+		Description: gistDescription,
+		Public:      false,
+		Files:       map[string]gistFile{gistFileName(): {Content: string(content)}},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	gistID := findGistID()
+	if gistID == "" {
+		cmd := exec.Command("gh", "api", "-X", "POST", "/gists", "--input", "-")
+		cmd.Stdin = bytes.NewReader(payloadBytes)
+		cmd.Run()
+	} else {
+		cmd := exec.Command("gh", "api", "-X", "PATCH", fmt.Sprintf("/gists/%s", gistID), "--input", "-")
+		cmd.Stdin = bytes.NewReader(payloadBytes)
+		cmd.Run()
+	}
+}
+
+var syncGistCmd = &cobra.Command{
+	Use:    "_sync-gist",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	Run: func(cmd *cobra.Command, args []string) {
+		doSyncToGist()
+	},
+}
+
+// pullFromGist downloads config from Gist and writes it to configFile
+func pullFromGist(configFile string) {
+	gistID := findGistID()
+	if gistID == "" {
+		return
+	}
+
+	out, err := exec.Command("gh", "api", fmt.Sprintf("/gists/%s", gistID)).Output()
+	if err != nil {
+		return
+	}
+
+	var gist struct {
+		Files map[string]struct {
+			Content string `json:"content"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(out, &gist); err != nil {
+		return
+	}
+
+	f, ok := gist.Files[gistFileName()]
+	if !ok || f.Content == "" {
+		return
+	}
+
+	os.WriteFile(configFile, []byte(f.Content), 0600)
 }
 
 var rootCmd = &cobra.Command{
-	Use: "gh cgu",
-	Args: func(cmd *cobra.Command, args []string) error {
-		if flagAdd {
-			if err := cobra.ExactArgs(2)(cmd, args); err != nil {
-				return err
-			}
-
-			return nil
-		}
-
-		if flagRemove {
-			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-				return err
-			}
-
-			return nil
-		}
-
-		if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
-			return err
-		}
-
-		return nil
-	},
+	Use:   "cgu",
+	Short: "Manage and switch git user profiles",
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		if flagAdd {
-			addProfile(args[0], args[1])
-			return
-		}
-
-		if flagRemove {
-			removeProfile(args[0])
-			return
-		}
-
-		if len(args) == 1 {
-			switchToProfile(args[0])
-			return
-		}
-
 		showCurrentUser()
+	},
+}
+
+var useCmd = &cobra.Command{
+	Use:   "use <key>",
+	Short: "Switch the git user of the current repo to a saved profile",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		switchToProfile(args[0])
+	},
+}
+
+var addCmd = &cobra.Command{
+	Use:   "add <name> <email>",
+	Short: "Save a new git user profile",
+	Long: `Save a new git user profile.
+
+The profile key is derived from <name> by replacing spaces with hyphens.
+Use --key to set a different key explicitly.`,
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := flagKey
+		if key == "" {
+			key = toKey(args[0])
+			if key == "" {
+				cobra.CheckErr(fmt.Errorf("could not derive key from %q. Use --key to specify one", args[0]))
+			}
+		}
+		addProfile(args[0], args[1], key)
+	},
+}
+
+var removeCmd = &cobra.Command{
+	Use:   "remove <key>",
+	Short: "Delete a saved profile",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		removeProfile(args[0])
+	},
+}
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all saved profiles",
+	Args:  cobra.NoArgs,
+	Run: func(cmd *cobra.Command, args []string) {
+		listProfiles()
 	},
 }
 
 func main() {
 	cobra.OnInitialize(initializeConfig)
 
-	rootCmd.PersistentFlags().BoolVar(&flagAdd, "add", false, "Add profile")
-	rootCmd.PersistentFlags().BoolVar(&flagRemove, "remove", false, "Remove profile")
-	rootCmd.MarkFlagsMutuallyExclusive("add", "remove")
+	addCmd.Flags().StringVar(&flagKey, "key", "", "Profile key used in config (defaults to name with spaces replaced by hyphens)")
+
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.AddCommand(useCmd, addCmd, removeCmd, listCmd, syncGistCmd)
+	rootCmd.SetUsageTemplate(`Usage:{{if .Runnable}}
+  gh {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  gh {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
+
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "gh {{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`)
 
 	err := rootCmd.Execute()
 	cobra.CheckErr(err)
 }
 
-// addProfile adds a new profile with the given name and email
-func addProfile(name, email string) {
-	viper.Set(name+".name", name)
-	viper.Set(name+".email", email)
+// addProfile adds a new profile with the given display name, email, and key
+func addProfile(name, email, key string) {
+	viper.Set(key+".name", name)
+	viper.Set(key+".email", email)
 	err := viper.WriteConfig()
 	if err != nil {
 		cobra.CheckErr(err)
 	}
 
-	fmt.Printf("Add profile: %s<%s>\n", name, email)
+	fmt.Printf("✓ Added profile %q (%s <%s>)\n", key, name, email)
+	syncToGist()
 }
 
-// removeProfile removes a profile by name
-func removeProfile(name string) {
-	email := viper.GetString(name + ".email")
+// removeProfile removes a profile by key
+func removeProfile(key string) {
+	email := viper.GetString(key + ".email")
 
 	// Check if profile exists
 	if email == "" {
-		err := fmt.Errorf("profile '%s' not found", name)
+		err := fmt.Errorf("profile '%s' not found", key)
 		cobra.CheckErr(err)
 	}
 
 	// Get all settings and remove the profile
+	// viper lowercases all keys, so match accordingly
 	configMap := viper.AllSettings()
-	delete(configMap, name)
+	delete(configMap, strings.ToLower(key))
 
 	// Re-encode and reload configuration
 	encodedConfig, err := json.MarshalIndent(configMap, "", " ")
@@ -121,7 +300,46 @@ func removeProfile(name string) {
 		cobra.CheckErr(err)
 	}
 
-	fmt.Printf("Remove profile: %s<%s>\n", name, email)
+	fmt.Printf("✓ Removed profile %q\n", key)
+	syncToGist()
+}
+
+// listProfiles prints all registered profiles
+func listProfiles() {
+	profiles := viper.AllSettings()
+	if len(profiles) == 0 {
+		fmt.Println("No profiles found. Add one with: gh cgu add <name> <email>")
+		return
+	}
+
+	// collect rows and compute column widths
+	type row struct{ key, name, email string }
+	rows := make([]row, 0, len(profiles))
+	keyW, nameW, emailW := len("KEY"), len("NAME"), len("EMAIL")
+	for k, v := range profiles {
+		entry, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, _ := entry["name"].(string)
+		email, _ := entry["email"].(string)
+		rows = append(rows, row{k, name, email})
+		if len(k) > keyW {
+			keyW = len(k)
+		}
+		if len(name) > nameW {
+			nameW = len(name)
+		}
+		if len(email) > emailW {
+			emailW = len(email)
+		}
+	}
+
+	fmt.Printf("%-*s  %-*s  %-*s\n", keyW, "KEY", nameW, "NAME", emailW, "EMAIL")
+	fmt.Printf("%s  %s  %s\n", strings.Repeat("-", keyW), strings.Repeat("-", nameW), strings.Repeat("-", emailW))
+	for _, r := range rows {
+		fmt.Printf("%-*s  %-*s  %-*s\n", keyW, r.key, nameW, r.name, emailW, r.email)
+	}
 }
 
 // checkGitDirectory checks if the current directory is a git repository
@@ -133,16 +351,16 @@ func checkGitDirectory() error {
 }
 
 // switchToProfile switches to the specified profile
-func switchToProfile(profileName string) {
+func switchToProfile(key string) {
 	if err := checkGitDirectory(); err != nil {
 		cobra.CheckErr(err)
 	}
 
-	name := viper.GetString(profileName + ".name")
-	email := viper.GetString(profileName + ".email")
+	name := viper.GetString(key + ".name")
+	email := viper.GetString(key + ".email")
 
 	if name == "" || email == "" {
-		err := fmt.Errorf("profile '%s' not found", profileName)
+		err := fmt.Errorf("profile '%s' not found", key)
 		cobra.CheckErr(err)
 	}
 
@@ -156,7 +374,7 @@ func switchToProfile(profileName string) {
 		cobra.CheckErr(fmt.Errorf("failed to set git user.email: %w", err))
 	}
 
-	fmt.Printf("Change Git User: %s<%s>\n", name, email)
+	fmt.Printf("✓ Switched to %q — %s <%s>\n", key, name, email)
 }
 
 // showCurrentUser displays the current git user
@@ -179,10 +397,12 @@ func showCurrentUser() {
 	userName := strings.TrimSpace(string(userNameOut))
 	userEmail := strings.TrimSpace(string(userEmailOut))
 
-	fmt.Printf("Current Git User: %s<%s>\n", userName, userEmail)
+	fmt.Printf("%s <%s>\n", userName, userEmail)
 }
 
 func initializeConfig() {
+	initGHLogin()
+
 	homePath, err := os.UserHomeDir()
 	cobra.CheckErr(err)
 
@@ -194,9 +414,16 @@ func initializeConfig() {
 	viper.SetConfigName(configName)
 	viper.SetConfigType(configType)
 
-	// if config not found
+	configFile := filepath.Join(configPath, fmt.Sprintf("%s.%s", configName, configType))
+
+	// if config not found, try to pull from Gist first
 	if err := viper.ReadInConfig(); err != nil {
 		os.MkdirAll(configPath, 0700)
-		viper.WriteConfigAs(filepath.Join(configPath, fmt.Sprintf("%s.%s", configName, configType)))
+		fmt.Fprintln(os.Stderr, "! No local config found. Syncing profiles from Gist...")
+		pullFromGist(configFile)
+		if err := viper.ReadInConfig(); err != nil {
+			fmt.Fprintln(os.Stderr, "! No Gist found. Starting with an empty profile list.")
+			viper.WriteConfigAs(configFile)
+		}
 	}
 }
