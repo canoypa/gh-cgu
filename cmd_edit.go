@@ -29,11 +29,14 @@ var editCmd = &cobra.Command{
 
 // editProfile updates an existing profile's name, email, and/or key
 func editProfile(v *viper.Viper, key, name, email, newKey string, changeName, changeEmail, changeKey bool) {
+	if !v.IsSet(key) {
+		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
+	}
+
 	currentName := v.GetString(key + ".name")
 	currentEmail := v.GetString(key + ".email")
-
 	if currentName == "" || currentEmail == "" {
-		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
+		cobra.CheckErr(fmt.Errorf("profile %q is corrupted: missing name or email", key))
 	}
 
 	if !changeName {

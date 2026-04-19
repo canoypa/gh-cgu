@@ -37,11 +37,14 @@ func switchToProfile(v *viper.Viper, key string) {
 		cobra.CheckErr(err)
 	}
 
+	if !v.IsSet(key) {
+		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
+	}
+
 	name := v.GetString(key + ".name")
 	email := v.GetString(key + ".email")
-
 	if name == "" || email == "" {
-		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
+		cobra.CheckErr(fmt.Errorf("profile %q is corrupted: missing name or email", key))
 	}
 
 	err := exec.Command("git", "config", "user.name", name).Run()
