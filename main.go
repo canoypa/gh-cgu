@@ -39,7 +39,7 @@ func toKey(s string) string {
 func initGHLogin() {
 	out, err := exec.Command("gh", "api", "/user", "--jq", ".login").Output()
 	if err != nil {
-		cobra.CheckErr(fmt.Errorf("not logged in to GitHub CLI. Run 'gh auth login' first"))
+		cobra.CheckErr(fmt.Errorf("not logged in to GitHub CLI, run 'gh auth login' to authenticate"))
 	}
 	ghLoginID = strings.TrimSpace(string(out))
 }
@@ -179,8 +179,12 @@ var rootCmd = &cobra.Command{
 var useCmd = &cobra.Command{
 	Use:   "use <key>",
 	Short: "Switch the git user of the current repo to a saved profile",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			cmd.Help()
+			return
+		}
 		switchToProfile(args[0])
 	},
 }
@@ -192,8 +196,12 @@ var addCmd = &cobra.Command{
 
 The profile key is derived from <name> by replacing spaces with hyphens.
 Use --key to set a different key explicitly.`,
-	Args:  cobra.ExactArgs(2),
+	Args: cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) < 2 {
+			cmd.Help()
+			return
+		}
 		key := flagKey
 		if key == "" {
 			key = toKey(args[0])
@@ -208,8 +216,12 @@ Use --key to set a different key explicitly.`,
 var removeCmd = &cobra.Command{
 	Use:   "remove <key>",
 	Short: "Delete a saved profile",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			cmd.Help()
+			return
+		}
 		removeProfile(args[0])
 	},
 }
@@ -275,8 +287,7 @@ func removeProfile(key string) {
 
 	// Check if profile exists
 	if email == "" {
-		err := fmt.Errorf("profile '%s' not found", key)
-		cobra.CheckErr(err)
+		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
 	}
 
 	// Get all settings and remove the profile
@@ -345,7 +356,7 @@ func listProfiles() {
 // checkGitDirectory checks if the current directory is a git repository
 func checkGitDirectory() error {
 	if f, err := os.Stat(".git"); os.IsNotExist(err) || !f.IsDir() {
-		return fmt.Errorf("not in a git directory")
+		return fmt.Errorf("not a git repository")
 	}
 	return nil
 }
@@ -360,8 +371,7 @@ func switchToProfile(key string) {
 	email := viper.GetString(key + ".email")
 
 	if name == "" || email == "" {
-		err := fmt.Errorf("profile '%s' not found", key)
-		cobra.CheckErr(err)
+		cobra.CheckErr(fmt.Errorf("profile %q not found, run 'gh cgu list' to see available profiles", key))
 	}
 
 	err := exec.Command("git", "config", "user.name", name).Run()
@@ -385,12 +395,12 @@ func showCurrentUser() {
 
 	userNameOut, err := exec.Command("git", "config", "user.name").Output()
 	if err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to get git user.name: %w", err))
+		cobra.CheckErr(fmt.Errorf("git user is not set, run 'gh cgu use <key>' to configure one"))
 	}
 
 	userEmailOut, err := exec.Command("git", "config", "user.email").Output()
 	if err != nil {
-		cobra.CheckErr(fmt.Errorf("failed to get git user.email: %w", err))
+		cobra.CheckErr(fmt.Errorf("git user is not set, run 'gh cgu use <key>' to configure one"))
 	}
 
 	// trim newlines

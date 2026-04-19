@@ -1,17 +1,34 @@
+# gh-cgu
+
+Manage and switch git user profiles as a [GitHub CLI](https://cli.github.com/) extension.
+
 ## Installation
 
-Current/Change Git User.
-
 ```shell
-gh extension install canoypa/cgu
+gh extension install canoypa/gh-cgu
 ```
 
 ## Usage
 
 ```shell
-$ gh cgu # Show current user
-$ gh cgu --add Name name@exmaple.com # Add profile
-$ gh cgu --remove Name # Remove profile
-$ gh cgu Name # Change git user
-$ gh cgu --list # Show profiles
+# Show current git user
+gh cgu
+
+# Switch to a saved profile (in a git repository)
+gh cgu use <key>
+
+# Add a new profile
+gh cgu add <name> <email>
+gh cgu add <name> <email> --key <key>  # specify key explicitly (e.g. for non-ASCII names)
+
+# Remove a profile
+gh cgu remove <key>
+
+# List all profiles
+gh cgu list
 ```
+
+## Profiles
+
+Profiles are stored in `~/.config/gh-cgu.yaml` and automatically synced to a private Gist (`gh-cgu-{login}-config.yml`).
+On first run with no local config, profiles are restored from the Gist automatically.
