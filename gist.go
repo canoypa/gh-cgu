@@ -90,10 +90,14 @@ func doSyncToGist() {
 
 	gistID := findGistID()
 	var result json.RawMessage
+	var apiErr error
 	if gistID == "" {
-		ghClient.Post("gists", bytes.NewReader(payloadBytes), &result)
+		apiErr = ghClient.Post("gists", bytes.NewReader(payloadBytes), &result)
 	} else {
-		ghClient.Patch(fmt.Sprintf("gists/%s", gistID), bytes.NewReader(payloadBytes), &result)
+		apiErr = ghClient.Patch(fmt.Sprintf("gists/%s", gistID), bytes.NewReader(payloadBytes), &result)
+	}
+	if apiErr != nil {
+		fmt.Fprintf(os.Stderr, "warn: failed to sync profiles to Gist: %v\n", apiErr)
 	}
 }
 
@@ -118,7 +122,9 @@ func pullFromGist(configFile string) {
 		return
 	}
 
-	os.WriteFile(configFile, []byte(f.Content), 0600)
+	if err := os.WriteFile(configFile, []byte(f.Content), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "! Failed to write config from Gist: %v\n", err)
+	}
 }
 
 var syncGistCmd = &cobra.Command{
