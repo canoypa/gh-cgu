@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -49,6 +50,7 @@ func listProfiles(v *viper.Viper) {
 
 	fmt.Printf("%-*s  %-*s  %-*s\n", keyW, "KEY", nameW, "NAME", emailW, "EMAIL")
 	fmt.Printf("%s  %s  %s\n", strings.Repeat("-", keyW), strings.Repeat("-", nameW), strings.Repeat("-", emailW))
+	sort.Slice(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
 	for _, r := range rows {
 		fmt.Printf("%-*s  %-*s  %-*s\n", keyW, r.key, nameW, r.name, emailW, r.email)
 	}
