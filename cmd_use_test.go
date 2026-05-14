@@ -34,7 +34,7 @@ func TestCheckGitDirectory_WithoutGitDir(t *testing.T) {
 
 func TestCheckGitDirectory_GitIsFile(t *testing.T) {
 	dir := t.TempDir()
-	// .git がファイル（worktree など）の場合はリポジトリと見なさない
+	// .git がファイル（worktree / submodule）の場合もリポジトリと見なす
 	f, err := os.Create(filepath.Join(dir, ".git"))
 	require.NoError(t, err)
 	f.Close()
@@ -44,5 +44,5 @@ func TestCheckGitDirectory_GitIsFile(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(orig)
 
-	assert.EqualError(t, checkGitDirectory(), "not a git repository")
+	assert.NoError(t, checkGitDirectory())
 }
