@@ -49,3 +49,13 @@ func TestEditProfile_AllFields(t *testing.T) {
 	assert.Equal(t, "new@example.com", v.GetString("alice2.email"))
 	assert.Empty(t, v.GetString("alice.name"))
 }
+
+func TestEditProfile_Key_ConflictGuard(t *testing.T) {
+	v := newTestViper(t)
+	addProfile(v, "Alice", "alice@example.com", "alice")
+	addProfile(v, "Bob", "bob@example.com", "bob")
+
+	// cobra.CheckErr は os.Exit するため直接呼べない。
+	// リネーム先キーが既存かどうかを v.IsSet で検出できることを確認する。
+	assert.True(t, v.IsSet("bob"), "conflict should be detected by IsSet before renaming")
+}

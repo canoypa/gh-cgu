@@ -50,6 +50,9 @@ func editProfile(v *viper.Viper, key, name, email, newKey string, changeName, ch
 		if err := validateKey(newKey); err != nil {
 			cobra.CheckErr(err)
 		}
+		if v.IsSet(newKey) {
+			cobra.CheckErr(fmt.Errorf("profile %q already exists, choose a different key", newKey))
+		}
 		configMap := v.AllSettings()
 		delete(configMap, strings.ToLower(key))
 		configMap[strings.ToLower(newKey)] = map[string]interface{}{
