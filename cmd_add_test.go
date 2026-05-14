@@ -35,6 +35,14 @@ func TestToKey(t *testing.T) {
 func TestValidateKey(t *testing.T) {
 	assert.NoError(t, validateKey("alice"))
 	assert.NoError(t, validateKey("user-name"))
-	assert.ErrorContains(t, validateKey("user.name"), "must not contain a dot")
-	assert.ErrorContains(t, validateKey("a.b.c"), "must not contain a dot")
+	assert.NoError(t, validateKey("日本語名前"))
+	// ドット
+	assert.ErrorContains(t, validateKey("user.name"), "invalid characters")
+	assert.ErrorContains(t, validateKey("a.b.c"), "invalid characters")
+	// その他の YAML 特殊文字
+	assert.ErrorContains(t, validateKey("a:b"), "invalid characters")
+	assert.ErrorContains(t, validateKey("a#b"), "invalid characters")
+	assert.ErrorContains(t, validateKey("a b"), "invalid characters")
+	// 空文字
+	assert.ErrorContains(t, validateKey(""), "must not be empty")
 }

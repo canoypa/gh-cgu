@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -45,11 +46,19 @@ func toKey(s string) string {
 	return s
 }
 
+// validKeyRe matches safe profile key characters:
+// Unicode letters (\p{L}), digits (\p{N}), hyphens and underscores.
+// YAML-special characters (.: # @ ! etc.) and whitespace are excluded.
+var validKeyRe = regexp.MustCompile(`^[\p{L}\p{N}_\-]+$`)
+
 // validateKey returns an error if the key contains characters that Viper treats as
-// path delimiters (currently "."). Such keys corrupt the YAML config structure.
+// path delimiters (currently ".") or characters that would corrupt the YAML structure.
 func validateKey(key string) error {
-	if strings.Contains(key, ".") {
-		return fmt.Errorf("profile key %q must not contain a dot ('.'): use a hyphen instead", key)
+	if key == "" {
+		return fmt.Errorf("profile key must not be empty")
+	}
+	if !validKeyRe.MatchString(key) {
+		return fmt.Errorf("profile key %q contains invalid characters: only letters, digits, hyphens and underscores are allowed", key)
 	}
 	return nil
 }
