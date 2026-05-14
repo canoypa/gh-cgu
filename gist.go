@@ -57,7 +57,7 @@ func syncToGist() {
 	cmd.Stderr = nil
 	cmd.SysProcAttr = newSysProcAttr()
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "warn: failed to start background sync: %v\n", err)
+		fmt.Fprintf(os.Stderr, "! failed to start background sync: %v\n", err)
 	}
 }
 
@@ -97,7 +97,7 @@ func doSyncToGist() {
 		apiErr = ghClient.Patch(fmt.Sprintf("gists/%s", gistID), bytes.NewReader(payloadBytes), &result)
 	}
 	if apiErr != nil {
-		fmt.Fprintf(os.Stderr, "warn: failed to sync profiles to Gist: %v\n", apiErr)
+		fmt.Fprintf(os.Stderr, "! failed to sync profiles to Gist: %v\n", apiErr)
 	}
 }
 
