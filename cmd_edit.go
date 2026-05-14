@@ -47,6 +47,9 @@ func editProfile(v *viper.Viper, key, name, email, newKey string, changeName, ch
 	}
 
 	if changeKey {
+		if err := validateKey(newKey); err != nil {
+			cobra.CheckErr(err)
+		}
 		configMap := v.AllSettings()
 		delete(configMap, strings.ToLower(key))
 		configMap[strings.ToLower(newKey)] = map[string]interface{}{

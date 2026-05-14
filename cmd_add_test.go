@@ -21,6 +21,8 @@ func TestToKey(t *testing.T) {
 		{"--alice--", "alice"},
 		{"日本語名前", "日本語名前"},
 		{"", ""},
+		{"user.name", "user-name"},
+		{"a.b.c", "a-b-c"},
 	}
 
 	for _, tt := range tests {
@@ -28,4 +30,11 @@ func TestToKey(t *testing.T) {
 			assert.Equal(t, tt.want, toKey(tt.input))
 		})
 	}
+}
+
+func TestValidateKey(t *testing.T) {
+	assert.NoError(t, validateKey("alice"))
+	assert.NoError(t, validateKey("user-name"))
+	assert.ErrorContains(t, validateKey("user.name"), "must not contain a dot")
+	assert.ErrorContains(t, validateKey("a.b.c"), "must not contain a dot")
 }

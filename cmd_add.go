@@ -35,9 +35,9 @@ Use --key to set a different key explicitly.`,
 }
 
 // toKey converts a display name to a profile key.
-// Spaces and underscores are replaced with hyphens; leading/trailing hyphens are trimmed.
+// Spaces, underscores and dots are replaced with hyphens; leading/trailing hyphens are trimmed.
 func toKey(s string) string {
-	s = strings.NewReplacer(" ", "-", "_", "-").Replace(s)
+	s = strings.NewReplacer(" ", "-", "_", "-", ".", "-").Replace(s)
 	s = strings.Trim(s, "-")
 	for strings.Contains(s, "--") {
 		s = strings.ReplaceAll(s, "--", "-")
@@ -45,8 +45,20 @@ func toKey(s string) string {
 	return s
 }
 
+// validateKey returns an error if the key contains characters that Viper treats as
+// path delimiters (currently "."). Such keys corrupt the YAML config structure.
+func validateKey(key string) error {
+	if strings.Contains(key, ".") {
+		return fmt.Errorf("profile key %q must not contain a dot ('.'): use a hyphen instead", key)
+	}
+	return nil
+}
+
 // addProfile adds a new profile with the given display name, email, and key
 func addProfile(v *viper.Viper, name, email, key string) {
+	if err := validateKey(key); err != nil {
+		cobra.CheckErr(err)
+	}
 	if v.IsSet(key) {
 		cobra.CheckErr(fmt.Errorf("profile %q already exists, use 'gh cgu edit %s' to update it", key, key))
 	}
