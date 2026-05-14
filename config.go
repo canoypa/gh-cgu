@@ -56,6 +56,9 @@ func initializeConfig() {
 		if err := viper.ReadInConfig(); err != nil {
 			fmt.Fprintln(os.Stderr, "! No Gist found. Starting with an empty profile list.")
 			viper.WriteConfigAs(configFile)
+			// WriteConfigAs はファイルを書くが ConfigFileUsed() を設定しない。
+			// SetConfigFile を呼ばないと以後の WriteConfig() が失敗するため明示的に登録する。
+			viper.SetConfigFile(configFile)
 		}
 	}
 }
