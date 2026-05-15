@@ -21,13 +21,15 @@ gh cgu use <key>
 
 # Manage profiles
 gh cgu add <name> <email>
-gh cgu add <name> <email> --key <key>  # explicit key (useful for non-ASCII names)
+gh cgu add <name> <email> --key <key>  # override the auto-derived key
 gh cgu edit <key> [--name <name>] [--email <email>] [--key <new-key>]
 gh cgu remove <key>
 ```
 
 ## Notes
 
-- Keys are derived from name by replacing spaces/underscores with hyphens (e.g. `Work User` → `work-user`). Non-ASCII names may fail to derive a valid key — use `--key` explicitly in that case.
-- `gh cgu use` requires being inside a git repository
-- Profiles are stored in `~/.config/gh-cgu.yaml` and synced to a private Gist automatically
+Profile keys are derived from `<name>` by replacing spaces, underscores, and dots with hyphens (e.g. `Work User` → `work-user`, `user.name` → `user-name`). Unicode letters, digits, hyphens, and underscores are allowed; YAML-special characters (`. : # @` etc.) and whitespace are rejected. Use `--key` to override the auto-derived key.
+
+- `gh cgu use` works in normal clones, git worktrees, and submodules.
+- `gh cgu edit --key <new-key>` fails if `<new-key>` already exists.
+- Profiles are stored in `~/.config/gh-cgu/config.yml` and synced to a private Gist automatically
