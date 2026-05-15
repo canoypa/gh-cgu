@@ -34,7 +34,7 @@ func init() {
 	editCmd.Flags().StringVar(&flagEditKey, "key", "", "New profile key")
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.AddCommand(useCmd, addCmd, editCmd, removeCmd, listCmd, syncGistCmd)
+	rootCmd.AddCommand(useCmd, addCmd, editCmd, removeCmd, listCmd, pullCmd, syncGistCmd)
 	rootCmd.SetUsageTemplate(`Usage:{{if .Runnable}}
   gh {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   gh {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
