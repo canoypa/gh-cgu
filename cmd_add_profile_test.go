@@ -15,6 +15,9 @@ func newTestViper(t *testing.T) *viper.Viper {
 	t.Helper()
 	skipSyncForTesting = true
 	t.Cleanup(func() { skipSyncForTesting = false })
+	origMeta := metaFileOverride
+	metaFileOverride = filepath.Join(t.TempDir(), "meta.yml")
+	t.Cleanup(func() { metaFileOverride = origMeta })
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "test-config.yaml")
 	require.NoError(t, os.WriteFile(cfgFile, []byte{}, 0600))
