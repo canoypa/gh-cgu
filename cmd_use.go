@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -23,10 +22,9 @@ var useCmd = &cobra.Command{
 	},
 }
 
-// checkGitDirectory checks if the current directory is a git repository.
-// Accepts both a .git directory (normal clone) and a .git file (worktree/submodule).
+// checkGitDirectory checks if the current directory is inside a git repository.
 func checkGitDirectory() error {
-	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+	if err := exec.Command("git", "rev-parse", "--git-dir").Run(); err != nil {
 		return fmt.Errorf("not a git repository")
 	}
 	return nil
